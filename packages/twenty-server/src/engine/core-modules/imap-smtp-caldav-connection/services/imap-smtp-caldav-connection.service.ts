@@ -111,9 +111,13 @@ export class ImapSmtpCaldavService {
     const validatedHost = await this.secureHttpClientService.getValidatedHost(
       params.host,
     );
+    // RFC 8314: implicit TLS on 465, else STARTTLS (required when encryption is on).
+    const useImplicitTls = params.port === 465;
     const transport = createTransport({
       host: validatedHost,
       port: params.port,
+      secure: useImplicitTls,
+      requireTLS: (params.secure ?? true) && !useImplicitTls,
       auth: {
         user: params.username ?? handle,
         pass: params.password,

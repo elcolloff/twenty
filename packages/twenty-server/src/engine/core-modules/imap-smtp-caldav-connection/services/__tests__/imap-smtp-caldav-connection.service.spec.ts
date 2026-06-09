@@ -1,5 +1,6 @@
 import { Test, type TestingModule } from '@nestjs/testing';
 
+import { createTransport } from 'nodemailer';
 import { type DAVClient } from 'tsdav';
 
 import { ImapSmtpCaldavValidatorService } from 'src/engine/core-modules/imap-smtp-caldav-connection/services/imap-smtp-caldav-connection-validator.service';
@@ -10,10 +11,19 @@ import { TwentyConfigService } from 'src/engine/core-modules/twenty-config/twent
 import { CalDavClientService } from 'src/modules/calendar/calendar-event-import-manager/drivers/caldav/services/caldav-client.service';
 import { CalDavFetchEventsService } from 'src/modules/calendar/calendar-event-import-manager/drivers/caldav/services/caldav-fetch-events.service';
 
+jest.mock('nodemailer', () => ({
+  createTransport: jest.fn(),
+}));
+
 describe('ImapSmtpCaldavService', () => {
   let service: ImapSmtpCaldavService;
 
   const mockClient = {} as DAVClient;
+
+  const mockVerify = jest.fn().mockResolvedValue(true);
+  const mockGetValidatedHost = jest
+    .fn()
+    .mockImplementation((host: string) => Promise.resolve(host));
 
   const mockCalDavClientService = {
     getClient: jest.fn(),
@@ -25,6 +35,8 @@ describe('ImapSmtpCaldavService', () => {
 
   beforeEach(async () => {
     jest.clearAllMocks();
+    (createTransport as jest.Mock).mockReturnValue({ verify: mockVerify });
+    mockVerify.mockResolvedValue(true);
     mockCalDavClientService.getClient.mockResolvedValue(mockClient);
     mockCalDavFetchEventsService.listEventCalendars.mockResolvedValue([
       { url: 'https://caldav.example.com/calendars/user/default/' },
@@ -33,7 +45,10 @@ describe('ImapSmtpCaldavService', () => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         ImapSmtpCaldavService,
-        { provide: SecureHttpClientService, useValue: {} },
+        {
+          provide: SecureHttpClientService,
+          useValue: { getValidatedHost: mockGetValidatedHost },
+        },
         { provide: ImapSmtpCaldavValidatorService, useValue: {} },
         {
           provide: TwentyConfigService,
@@ -91,6 +106,62 @@ describe('ImapSmtpCaldavService', () => {
       await expect(
         service.testCaldavConnection('user@example.com', params),
       ).rejects.toThrow('No calendar with event support found');
+    });
+  });
+
+  describe('testSmtpConnection', () => {
+    const params: ConnectionParameters = {
+      host: 'smtp.example.com',
+      port: 587,
+      username: 'user@example.com',
+      password: 'password123',
+    };
+
+    it('uses implicit TLS on port 465', async () => {
+      await service.testSmtpConnection('user@example.com', {
+        ...params,
+        port: 465,
+        secure: true,
+      });
+
+      expect(createTransport).toHaveBeenCalledWith(
+        expect.objectContaining({ secure: true, requireTLS: false }),
+      );
+    });
+
+    it('requires STARTTLS on a submission port when encryption is selected', async () => {
+      await service.testSmtpConnection('user@example.com', {
+        ...params,
+        port: 587,
+        secure: true,
+      });
+
+      expect(createTransport).toHaveBeenCalledWith(
+        expect.objectContaining({ secure: false, requireTLS: true }),
+      );
+    });
+
+    it('does not require STARTTLS on a submission port when encryption is off', async () => {
+      await service.testSmtpConnection('user@example.com', {
+        ...params,
+        port: 587,
+        secure: false,
+      });
+
+      expect(createTransport).toHaveBeenCalledWith(
+        expect.objectContaining({ secure: false, requireTLS: false }),
+      );
+    });
+
+    it('requires STARTTLS on a submission port when encryption is unset', async () => {
+      await service.testSmtpConnection('user@example.com', {
+        ...params,
+        port: 587,
+      });
+
+      expect(createTransport).toHaveBeenCalledWith(
+        expect.objectContaining({ secure: false, requireTLS: true }),
+      );
     });
   });
 });

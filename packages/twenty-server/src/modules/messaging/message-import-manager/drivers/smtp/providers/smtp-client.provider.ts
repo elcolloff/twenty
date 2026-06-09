@@ -49,9 +49,13 @@ export class SmtpClientProvider {
     const validatedSmtpHost =
       await this.secureHttpClientService.getValidatedHost(smtpParams.host);
 
+    // RFC 8314: implicit TLS on 465, else STARTTLS (required when encryption is on).
+    const useImplicitTls = smtpParams.port === 465;
     const options: SMTPConnection.Options = {
       host: validatedSmtpHost,
       port: smtpParams.port,
+      secure: useImplicitTls,
+      requireTLS: (smtpParams.secure ?? true) && !useImplicitTls,
       auth: {
         user: smtpParams.username ?? connectedAccount.handle ?? '',
         pass: smtpParams.password,
